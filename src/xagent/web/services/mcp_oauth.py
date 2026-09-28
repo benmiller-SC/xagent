@@ -1444,6 +1444,22 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def redact_oauth_url_for_diagnostics(value: str | None) -> str | None:
+    """Strip query string and userinfo from a user-configured OAuth URL.
+
+    Diagnostic payloads (mcp_runtime.mcp_oauth_runtime_diagnostic) surface
+    ``resource``/``issuer`` in an HTTP 400 body to any user with an active
+    association to the MCP server, not just its owner. ``resource`` in
+    particular is free text set by whoever configured the connector, and
+    commonly carries an API key or token in its query string or userinfo.
+    Reuses the same scheme/host/path normalization already used to key OAuth
+    grant lookups, since that normalization already drops both.
+    """
+    if not value:
+        return None
+    return _canonical_url_identifier(value)
+
+
 def _canonical_resource(endpoint_url: str) -> str:
     return _canonical_url_identifier(endpoint_url)
 

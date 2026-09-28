@@ -44,6 +44,35 @@ def test_resource_query_string_and_userinfo_are_redacted():
     assert diagnostic["server_id"] == 42
 
 
+def test_schemeless_resource_query_string_is_still_redacted():
+    # No scheme, no "//" -- urlsplit parses this as a bare path + query, with
+    # no netloc at all. redact_oauth_url_for_diagnostics must not fall back
+    # to returning it verbatim (gemini-code-assist, PR #2765).
+    diagnostic = mcp_oauth_runtime_diagnostic(
+        _server(),
+        code="authorization_required",
+        message="MCP OAuth grant is expired and requires reauthorization",
+        resource="mcp.example.test/oauth?api_key=SECRET",
+    )
+
+    assert "SECRET" not in diagnostic["resource"]
+    assert "?" not in diagnostic["resource"]
+
+
+def test_protocol_relative_resource_userinfo_and_query_are_redacted():
+    # No scheme, but "//" gives urlsplit a netloc (with userinfo) to parse.
+    diagnostic = mcp_oauth_runtime_diagnostic(
+        _server(),
+        code="authorization_required",
+        message="MCP OAuth grant is expired and requires reauthorization",
+        resource="//user:token@mcp.example.test/oauth?api_key=SECRET",
+    )
+
+    assert "SECRET" not in diagnostic["resource"]
+    assert "token" not in diagnostic["resource"]
+    assert "?" not in diagnostic["resource"]
+
+
 def test_missing_resource_and_issuer_stay_none():
     diagnostic = mcp_oauth_runtime_diagnostic(
         _server(),

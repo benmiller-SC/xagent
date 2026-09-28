@@ -1445,19 +1445,44 @@ def _utc_now() -> datetime:
 
 
 def redact_oauth_url_for_diagnostics(value: str | None) -> str | None:
-    """Strip query string and userinfo from a user-configured OAuth URL.
+    """Strip query string, fragment, and userinfo from a user-configured OAuth URL.
 
     Diagnostic payloads (mcp_runtime.mcp_oauth_runtime_diagnostic) surface
     ``resource``/``issuer`` in an HTTP 400 body to any user with an active
     association to the MCP server, not just its owner. ``resource`` in
     particular is free text set by whoever configured the connector, and
     commonly carries an API key or token in its query string or userinfo.
-    Reuses the same scheme/host/path normalization already used to key OAuth
-    grant lookups, since that normalization already drops both.
+
+    Deliberately does NOT delegate to ``_canonical_url_identifier``: that
+    helper passes a value through **verbatim** when it lacks a scheme or
+    netloc -- correct for its own job (a stable comparison key for grant
+    lookups must accept whatever malformed string a caller stores), but a
+    schemeless or protocol-relative resource string (``mcp.example.test/
+    oauth?api_key=SECRET`` or ``//user:token@mcp.example.test/oauth?api_key=
+    SECRET``) can still carry a secret in that exact position, and that
+    fallback would leak it unredacted. Always strip query/fragment/userinfo
+    from whatever urlsplit finds, with or without a recognized scheme or
+    authority.
     """
     if not value:
         return None
-    return _canonical_url_identifier(value)
+    parts = urlsplit(value)
+    hostname = (parts.hostname or "").rstrip(".").lower()
+    netloc = (
+        f"[{hostname}]"
+        if ":" in hostname and not hostname.startswith("[")
+        else hostname
+    )
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if port:
+        netloc = f"{netloc}:{port}"
+    path = parts.path.rstrip("/")
+    if parts.scheme or netloc:
+        return urlunsplit((parts.scheme.lower(), netloc, path, "", ""))
+    return path
 
 
 def _canonical_resource(endpoint_url: str) -> str:

@@ -1453,20 +1453,17 @@ def redact_oauth_url_for_diagnostics(value: str | None) -> str | None:
     particular is free text set by whoever configured the connector, and
     commonly carries an API key or token in its query string or userinfo.
 
-    Deliberately does NOT delegate to ``_canonical_url_identifier``: that
-    helper passes a value through **verbatim** when it lacks a scheme or
-    netloc -- correct for its own job (a stable comparison key for grant
-    lookups must accept whatever malformed string a caller stores), but a
-    schemeless or protocol-relative resource string (``mcp.example.test/
-    oauth?api_key=SECRET`` or ``//user:token@mcp.example.test/oauth?api_key=
-    SECRET``) can still carry a secret in that exact position, and that
-    fallback would leak it unredacted. Always strip query/fragment/userinfo
-    from whatever urlsplit finds, with or without a recognized scheme or
-    authority.
+    Unlike ``_canonical_url_identifier``, diagnostics must not pass through
+    values without an authority. In ``user:password@host/path``, urlsplit
+    treats the username as a scheme and leaves the password in the path.
+    Omit such ambiguous values instead of returning possible credentials.
+    Protocol-relative URLs still have an authority and can be redacted.
     """
     if not value:
         return None
     parts = urlsplit(value)
+    if not parts.netloc:
+        return None
     hostname = (parts.hostname or "").rstrip(".").lower()
     netloc = (
         f"[{hostname}]"
@@ -1480,9 +1477,7 @@ def redact_oauth_url_for_diagnostics(value: str | None) -> str | None:
     if port:
         netloc = f"{netloc}:{port}"
     path = parts.path.rstrip("/")
-    if parts.scheme or netloc:
-        return urlunsplit((parts.scheme.lower(), netloc, path, "", ""))
-    return path
+    return urlunsplit((parts.scheme.lower(), netloc, path, "", ""))
 
 
 def _canonical_resource(endpoint_url: str) -> str:

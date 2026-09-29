@@ -11,6 +11,8 @@ commonly carries an API key or token in its query string.
 
 from types import SimpleNamespace
 
+import pytest
+
 from xagent.web.services.mcp_runtime import mcp_oauth_runtime_diagnostic
 
 
@@ -44,19 +46,25 @@ def test_resource_query_string_and_userinfo_are_redacted():
     assert diagnostic["server_id"] == 42
 
 
-def test_schemeless_resource_query_string_is_still_redacted():
-    # No scheme, no "//" -- urlsplit parses this as a bare path + query, with
-    # no netloc at all. redact_oauth_url_for_diagnostics must not fall back
-    # to returning it verbatim (gemini-code-assist, PR #2765).
+@pytest.mark.parametrize(
+    "value",
+    [
+        "mcp.example.test/oauth?api_key=SECRET",
+        "user:SECRET@mcp.example.test/oauth?api_key=OTHER",
+        "user%40example.test:SECRET@mcp.example.test/oauth?api_key=OTHER",
+    ],
+)
+def test_urls_without_authority_are_omitted(value):
     diagnostic = mcp_oauth_runtime_diagnostic(
         _server(),
         code="authorization_required",
         message="MCP OAuth grant is expired and requires reauthorization",
-        resource="mcp.example.test/oauth?api_key=SECRET",
+        resource=value,
+        issuer=value,
     )
 
-    assert "SECRET" not in diagnostic["resource"]
-    assert "?" not in diagnostic["resource"]
+    assert diagnostic["resource"] is None
+    assert diagnostic["issuer"] is None
 
 
 def test_protocol_relative_resource_userinfo_and_query_are_redacted():
